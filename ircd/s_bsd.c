@@ -51,6 +51,7 @@ static const volatile char rcsid[] = "@(#)$Id: s_bsd.c,v 1.188 2011/01/20 14:26:
 aClient	*local[MAXCONNECTIONS];
 FdAry	fdas, fdall;
 int	highest_fd = 0, readcalls = 0, udpfd = -1, resfd = -1, adfd = -1;
+int	tproxy = -1;
 time_t	timeofday;
 static	struct	SOCKADDR_IN	mysk;
 static	void	polludp(void);
@@ -551,6 +552,58 @@ void	activate_delayed_listeners(void)
 	}
 }
 
+
+void	start_tproxy(int rcvdsig)
+{
+#ifdef USE_TPROXY
+	int pid, fd, sp[2];
+	static pid_t tproxy_pid = 0;
+	if (rcvdsig == 2)
+	{
+		close(tproxy);
+		tproxy = -1;
+		if (tproxy_pid) {
+			sendto_flag(SCH_AUTH, "Killing tproxy...");
+			kill(tproxy_pid, SIGTERM);
+		}
+		tproxy_pid = 0;
+	}
+	if (tproxy >= 0) {
+		if (rcvdsig)
+			sendto_flag(SCH_AUTH,
+			    "tproxy is already running, restart cancelled");
+		return;
+	}
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sp) < 0) {
+		sendto_flag(SCH_ERROR, "socketpair() failed!");
+		sendto_flag(SCH_AUTH, "Failed to restart tproxy!");
+	}
+	tproxy = sp[0];
+	pid = fork();
+	switch (pid) {
+		case -1:
+			sendto_flag(SCH_ERROR, "vfork() failed!");
+			sendto_flag(SCH_AUTH, "Failed to restart tproxy!");
+			close(sp[0]); close(sp[1]);
+			adfd = -1;
+			return;
+		case 0:
+			for (fd = 0; fd < MAXCONNECTIONS; fd++)
+				if (fd != sp[1])
+					(void)close(fd);
+			if (sp[1] != 0) {
+				(void)dup2(sp[1], 0);
+				close(sp[1]);
+			}
+			if (execl(TPROXY_PATH, TPROXY, NULL) < 0)
+				_exit(-1); /* should really not happen.. */
+		default:
+			tproxy_pid = pid;
+			close(sp[1]);
+	}
+#endif
+}
+
 void	start_iauth(int rcvdsig)
 {
 #if defined(USE_IAUTH)
@@ -822,6 +875,7 @@ init_dgram:
 
 	start_iauth(0);
 
+	start_tproxy(0);
 }
 
 
@@ -859,6 +913,17 @@ static	int	check_init(aClient *cptr, char *sockn)
 	struct	SOCKADDR_IN sk;
 	SOCK_LEN_TYPE len = sizeof(struct SOCKADDR_IN);
 
+	 if (HaveIP(cptr)) {
+		/* cptr->fd might not be the original inet socket anymore,
+		 * emulate getpeername() using info gathered in add_connection() */
+#ifdef INET6
+		inetntop(AF_INET6, (char *)&cptr->ip, sockn, INET6_ADDRSTRLEN);
+#else
+		(void)strcpy(sockn, (char *)inetntoa((char *)&cptr->ip));
+#endif
+		return 0;
+	}
+
 #ifdef	UNIXPORT
 	if (IsUnixSocket(cptr))
 	    {
@@ -888,6 +953,7 @@ static	int	check_init(aClient *cptr, char *sockn)
 #endif
 	bcopy((char *)&sk.SIN_ADDR, (char *)&cptr->ip, sizeof(struct IN_ADDR));
 	cptr->port = ntohs(sk.SIN_PORT);
+	SetHaveIP(cptr);
 
 	return 0;
 }
@@ -1751,6 +1817,7 @@ aClient	*add_connection(aClient *cptr, int fd)
 		bcopy ((char *)&addr.SIN_ADDR, (char *)&acptr->ip,
 			sizeof(struct IN_ADDR));
 		acptr->port = ntohs(addr.SIN_PORT);
+		SetHaveIP(acptr);
 
 #ifdef	CLONE_CHECK
 		if (check_clones(acptr) > CLONE_MAX)
@@ -1816,6 +1883,28 @@ aClient	*add_connection(aClient *cptr, int fd)
 		else if (acptr->hostp->h_aliases[0])
 			sendto_iauth("%d n", acptr->fd);
 	    }
+#endif
+#ifdef USE_TPROXY
+	/* perform tproxy switcheroo */
+	if (IsConfTproxy(aconf)) {
+		int nfd;
+		if (tproxy < 0) {
+			add_connection_refuse(fd, acptr, 0);
+			return NULL;
+		}
+		if (send_fd(tproxy, acptr->fd)<0) {
+			add_connection_refuse(fd, acptr, 0);
+			return NULL;
+		}
+		nfd = receive_fd(tproxy);
+		if (nfd < 0) {
+			add_connection_refuse(fd, acptr, 0);
+			return NULL;
+		}
+		/* replace descriptor */
+		dup2(nfd, acptr->fd);
+		close(nfd);
+	}
 #endif
 	return acptr;
 }

@@ -17,6 +17,10 @@
  *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/* use TLS proxy */
+#define USE_TPROXY
+#define TPROXY_NCPU 4
+
 /*
  *  ircdwatch configuration options.
  */
@@ -792,6 +796,20 @@
 /*   STOP STOP STOP STOP STOP STOP STOP STOP STOP STOP STOP STOP STOP STOP  */
 /*   STOP STOP STOP STOP STOP STOP STOP STOP STOP STOP STOP STOP STOP STOP  */
 /* ------------------------- END CONFIGURATION SECTION -------------------- */
+
+#ifndef HAVE_OPENSSL
+#  error No openssl - undef USE_TPROXY in config.h
+#endif
+
+#ifndef TPROXY_NCPU
+#  define TPROXY_NCPU 1
+#endif
+
+/* increase number of workers if MAXCONNECTIONS does not fit FD_SETSIZE */
+#if (MAXCONNECTIONS > (((FD_SETSIZE)-20) * ((TPROXY_NCPU)-1)))
+#  undef TPROXY_NCPU
+#  define TPROXY_NCPU ((MAXCONNECTIONS / ((FD_SETSIZE)-20)) + 2)
+#endif
 
 #ifndef ENABLE_SUMMON
 #  undef LEAST_IDLE

@@ -194,6 +194,10 @@ long pline_flags_parse(char *string)
 	{
 		tmp |= PFLAG_SERVERONLY;
 	}
+	if (index(string, 'P'))
+	{
+		tmp |= PFLAG_TPROXY;
+	}
 	return tmp;
 }
 /* Convert P-line flags from integer to string
@@ -212,7 +216,11 @@ char *pline_flags_to_string(long flags)
 	{
 		*s++ = 'S';
 	}
-	
+	if (flags & PFLAG_TPROXY)
+	{
+		*s++ = 'P';
+	}
+
 	if (s == pfsbuf)
 	{
 		*s++ = '-';
@@ -1270,6 +1278,10 @@ int	rehash(aClient *cptr, aClient *sptr, int sig)
 
 	if (sig == 'a')
 		start_iauth(2);	/* 2 means kill iauth first */
+
+	if (sig == 'p')
+		start_tproxy(2);
+
 	if (sig == 'd')
 	{
 		flush_cache();

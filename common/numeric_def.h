@@ -236,6 +236,7 @@
 #define RPL_ENDOFWHOIS       318
 #define RPL_WHOISCHANNELS    319
 
+#define RPL_TPROXY           320 /* as per RPL_WHOISSPECIAL of Unreal and many others */
 #define RPL_LISTSTART        321
 #define RPL_LIST             322
 #define RPL_LISTEND          323
