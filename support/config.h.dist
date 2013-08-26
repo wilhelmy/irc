@@ -387,6 +387,16 @@
 #undef BETTER_CDELAY
 
 /*
+ * Continuation of the BOFH saga above, specify custom cdelay
+ * NOTE: You can not set this below network default.
+ *
+ * CHDELAYCHASETIMELIMIT - #channels
+ * LCHDELAYCHASETIMELIMIT - !channels
+#define CHDELAYCHASETIMELIMIT (3*86400)
+#define LCHDELAYCHASETIMELIMIT (3*86400)
+ */
+
+/*
  * Defining this will enable the use of compressed server-server links.
  * In order to have it work, you must have the zlib version 1.0 or higher.
  * The library and the include files must have been found by configure,

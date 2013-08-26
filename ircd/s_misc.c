@@ -862,7 +862,7 @@ static	void	exit_one_client(aClient *cptr, aClient *sptr, aClient *from,
 					if (*lp->value.chptr->chname == '!')
 					{
 						if (!(sptr->flags &FLAGS_QUIT))
-							lp->value.chptr->history = timeofday + LDELAYCHASETIMELIMIT;
+							lp->value.chptr->history = timeofday + LCHDELAYCHASETIMELIMIT;
 					}
 					else if (
 #ifndef BETTER_CDELAY
@@ -870,7 +870,7 @@ static	void	exit_one_client(aClient *cptr, aClient *sptr, aClient *from,
 #endif
 						 is_chan_op(sptr, lp->value.chptr))
 					{
-						lp->value.chptr->history = timeofday + DELAYCHASETIMELIMIT;
+						lp->value.chptr->history = timeofday + CHDELAYCHASETIMELIMIT;
 					}
 				}
 				if (IsAnonymous(lp->value.chptr) &&
