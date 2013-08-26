@@ -69,6 +69,7 @@ static	Link	*match_modeid (int, aClient *, aChannel *);
 static  void    names_channel (aClient *,aClient *,char *,aChannel *,int);
 static	void	free_bei (aListItem *bei);
 static	aListItem	*make_bei (char *nick, char *user, char *host);
+static	void	free_chanmodes(aChannel *chptr);
 
 
 static	char	*PartFmt = ":%s PART %s :%s";
@@ -421,9 +422,9 @@ static	void	add_user_to_channel(aChannel *chptr, aClient *who, int flags)
 			istat.is_chan++;
 			istat.is_chanmem += sz;
 		    }
-		if (chptr->users == 1 && chptr->history)
+		if (chptr->users == 1 && chptr->history && !MyConnect(who))
 		    {
-			/* Locked channel */
+			/* Locked channel and remote user joins */
 			istat.is_hchan--;
 			istat.is_hchanmem -= sz;
 			/*
@@ -436,7 +437,7 @@ static	void	add_user_to_channel(aChannel *chptr, aClient *who, int flags)
 			** servers that don't do channel delay) - kalt
 			*/
 			if (*chptr->chname != '!')
-				bzero((char *)&chptr->mode, sizeof(Mode));
+				free_chanmodes(chptr);
 		    }
 
 #ifdef USE_SERVICES
@@ -469,6 +470,9 @@ static	void	add_user_to_channel(aChannel *chptr, aClient *who, int flags)
 			chptr->clist = ptr;
 		    }
 		ptr->flags++;
+		/* op returned, clear CD and reop */
+		if (flags & CHFL_CHANOP)
+			chptr->reop = chptr->history = 0;
 	    }
 }
 
@@ -547,6 +551,9 @@ static	void	change_chan_flag(Link *lp, aChannel *chptr)
 {
 	Reg	Link *tmp;
 	aClient	*cptr = lp->value.cptr;
+
+	if (lp->flags == (MODE_CHANOP|MODE_ADD))
+		chptr->reop = chptr->history = 0;
 
 	/*
 	 * Set the channel members flags...
@@ -1993,9 +2000,13 @@ static	int	can_join(aClient *sptr, aChannel *chptr, char *key)
 	Link	*banned;
 	int	limit = 0;
 
+	/* HACK: NJOIN . channels (well, anything without modes) are still hard locked
+         * by CDELAY. */
 	if (chptr->users == 0 && (bootopt & BOOT_PROT) && 
-	    chptr->history != 0 && *chptr->chname != '!')
-		return (timeofday > chptr->history) ? 0 : ERR_UNAVAILRESOURCE;
+	    chptr->history > timeofday && *chptr->chname != '!' &&
+	    !chptr->mode.mode && !*chptr->mode.key && !chptr->mode.limit && !chptr->mlist)
+               return ERR_UNAVAILRESOURCE;
+
 
 #ifdef CLIENTS_CHANNEL
 	if (*chptr->chname == '&' && !strcmp(chptr->chname, "&CLIENTS")
@@ -2268,39 +2279,43 @@ void	del_invite(aClient *cptr, aChannel *chptr)
 }
 
 /*
+**  Free data associated with ban-like modes and invites
+*/
+static	void	free_chanmodes(aChannel *chptr)
+{
+	Reg	Link *tmp;
+	Link	*obtmp;
+
+	bzero((char *)&chptr->mode, sizeof(Mode));
+	while ((tmp = chptr->invites))
+		del_invite(tmp->value.cptr, chptr);
+	
+	tmp = chptr->mlist;
+	while (tmp)
+	    {
+		obtmp = tmp;
+		tmp = tmp->next;
+		istat.is_banmem -= BanLen(obtmp->value.alist);
+		istat.is_bans--;
+		free_bei(obtmp->value.alist);
+		free_link(obtmp);
+	    }
+	chptr->mlist = NULL;
+}
+
+
+/*
 **  The last user has left the channel, free data in the channel block,
 **  and eventually the channel block itself.
 */
 static	void	free_channel(aChannel *chptr)
 {
-	Reg	Link *tmp;
-	Link	*obtmp;
 	int	len = sizeof(aChannel) + strlen(chptr->chname), now = 0;
 
-        if (chptr->history == 0 || timeofday >= chptr->history)
+        if (chptr->history == 0 || timeofday >= chptr->history) {
 		/* no lock, nor expired lock, channel is no more, free it */
-		now = 1;
+		free_chanmodes(chptr);
 
-	if (*chptr->chname != '!' || now)
-	    {
-		while ((tmp = chptr->invites))
-			del_invite(tmp->value.cptr, chptr);
-		
-		tmp = chptr->mlist;
-		while (tmp)
-		    {
-			obtmp = tmp;
-			tmp = tmp->next;
-			istat.is_banmem -= BanLen(obtmp->value.alist);
-			istat.is_bans--;
-			free_bei(obtmp->value.alist);
-			free_link(obtmp);
-		    }
-		chptr->mlist = NULL;
-	    }
-
-	if (now)
-	    {
 		istat.is_hchan--;
 		istat.is_hchanmem -= len;
 		if (chptr->prevch)
@@ -2315,7 +2330,7 @@ static	void	free_channel(aChannel *chptr)
 			cache_chid(chptr);
 		else
 			MyFree(chptr);
-	    }
+	}
 }
 
 /*
@@ -2332,6 +2347,7 @@ int	m_join(aClient *cptr, aClient *sptr, int parc, char *parv[])
 	Reg	char	*name, *key = NULL;
 	int	i, tmplen, flags = 0;
 	char	*p = NULL, *p2 = NULL;
+	aClient	*acptr;
 
 	/* This is the only case we get JOIN over s2s link. --B. */
 	/* It could even be its own command. */
@@ -2571,8 +2587,10 @@ int	m_join(aClient *cptr, aClient *sptr, int parc, char *parv[])
 		if (UseModes(name) &&
 			(*name != '#' || !IsSplit()) &&
 		    (!IsRestricted(sptr) || (*name == '&')) && !chptr->users &&
-		    !(chptr->history && *chptr->chname == '!'))
+		    ((chptr->history < timeofday && *chptr->chname == '#') || (!chptr->history && *chptr->chname == '!')))
 		{
+			/* New channel */
+			free_chanmodes(chptr);
 			if (*name == '!')
 				flags |= CHFL_UNIQOP|CHFL_CHANOP;
 			else
@@ -2608,6 +2626,15 @@ int	m_join(aClient *cptr, aClient *sptr, int parc, char *parv[])
 			sendto_one(sptr, ":%s NOTICE %s :Channel %s has the anonymous flag set.", ME, chptr->chname, chptr->chname);
 			sendto_one(sptr, ":%s NOTICE %s :Be aware that anonymity on IRC is NOT securely enforced!", ME, chptr->chname);
 		}
+
+		if (chptr->users == 1 && (bootopt & BOOT_PROT) && 
+		    (timeofday < chptr->history)  && *chptr->chname != '!') {
+			if (IsSplit())
+				sendto_one(sptr, ":%s NOTICE %s :Channel %s is locked (split-mode)", ME, chptr->chname, chptr->chname);
+			else
+				sendto_one(sptr, ":%s NOTICE %s :Channel %s is locked (wait %d minutes to recycle)", ME, chptr->chname, chptr->chname, (chptr->history - timeofday)/60);
+		}
+
 		/*
 	        ** notify other servers
 		*/
@@ -2633,6 +2660,12 @@ int	m_join(aClient *cptr, aClient *sptr, int parc, char *parv[])
 				flags & CHFL_CHANOP ? "@" : "",
 				sptr->user ? sptr->user->uid : parv[0]);
 		}
+
+		/* If the channel was locked, propagate its modes. Note that !channels work differently. */
+		if (*chptr->chname == '#' && chptr->users == 1 && (flags & CHFL_CHANOP) && MyConnect(sptr))
+			for (i < fdas.highest; i >= 0; i--)
+				if ((acptr = local[fdas.fd[i]]) && IsServer(acptr) && !IsMe(acptr))
+					send_channel_modes(acptr, chptr);
 	}
 	return 2;
 }
@@ -3410,8 +3443,7 @@ int	m_list(aClient *cptr, aClient *sptr, int parc, char *parv[])
 		 */
 		for (chptr = channel; chptr; chptr = chptr->nextch)
 		{
-			if (!chptr->users ||    /* empty locked channel */
-			    SecretChannel(chptr) || HiddenChannel(chptr))
+			if (SecretChannel(chptr) || HiddenChannel(chptr))
 			{
 				continue;
 			}
@@ -4001,7 +4033,8 @@ time_t	collect_channel_garbage(time_t now)
 		if (split)	/* net splitted recently and we have a lock */
 			chptr->history += SPLITBONUS; /* extend lock */
 
-		if ((chptr->users == 0) && (chptr->history <= now))
+		/* Only free channels if we are not actually in split via SS/SU */
+		if ((chptr->users == 0) && (chptr->history <= now) && !IsSplit())
 		    {
 			del_ch = chptr;
 
