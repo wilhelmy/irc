@@ -69,6 +69,7 @@ static	Link	*match_modeid (int, aClient *, aChannel *);
 static  void    names_channel (aClient *,aClient *,char *,aChannel *,int);
 static	void	free_bei (aListItem *bei);
 static	aListItem	*make_bei (char *nick, char *user, char *host);
+static	void	free_chanmodes(aChannel *chptr);
 
 
 static	char	*PartFmt = ":%s PART %s :%s";
@@ -421,9 +422,9 @@ static	void	add_user_to_channel(aChannel *chptr, aClient *who, int flags)
 			istat.is_chan++;
 			istat.is_chanmem += sz;
 		    }
-		if (chptr->users == 1 && chptr->history)
+		if (chptr->users == 1 && chptr->history && !MyConnect(who))
 		    {
-			/* Locked channel */
+			/* Locked channel and remote user joins */
 			istat.is_hchan--;
 			istat.is_hchanmem -= sz;
 			/*
@@ -436,7 +437,7 @@ static	void	add_user_to_channel(aChannel *chptr, aClient *who, int flags)
 			** servers that don't do channel delay) - kalt
 			*/
 			if (*chptr->chname != '!')
-				bzero((char *)&chptr->mode, sizeof(Mode));
+				free_chanmodes(chptr);
 		    }
 
 #ifdef USE_SERVICES
@@ -469,10 +470,14 @@ static	void	add_user_to_channel(aChannel *chptr, aClient *who, int flags)
 			chptr->clist = ptr;
 		    }
 		ptr->flags++;
+		/* op returned, clear CD and reop */
+		if (flags & CHFL_CHANOP)
+			chptr->reop = chptr->history = 0;
 	    }
 }
 
-void	remove_user_from_channel(aClient *sptr, aChannel *chptr)
+/* Returns 1 if channel is destroyed */
+int	remove_user_from_channel(aClient *sptr, aChannel *chptr)
 {
 	Reg	Link	**curr;
 	Reg	Link	*tmp, *tmp2;
@@ -539,14 +544,20 @@ void	remove_user_from_channel(aClient *sptr, aChannel *chptr)
 		istat.is_hchan++;
 		istat.is_hchanmem += sz;
 		free_channel(chptr);
+		istat.is_chanusers--;
+		return 1;
 	    }
 	istat.is_chanusers--;
+	return 0;
 }
 
 static	void	change_chan_flag(Link *lp, aChannel *chptr)
 {
 	Reg	Link *tmp;
 	aClient	*cptr = lp->value.cptr;
+
+	if (lp->flags == (MODE_CHANOP|MODE_ADD))
+		chptr->reop = chptr->history = 0;
 
 	/*
 	 * Set the channel members flags...
@@ -1131,6 +1142,7 @@ static	int	set_mode(aClient *cptr, aClient *sptr, aChannel *chptr,
 #endif
 	char	*mbuf = modebuf, *pbuf = parabuf, *upbuf = uparabuf;
 	int	tmp_chfl = 0, tmp_rpl = 0, tmp_rpl2 = 0, tmp_mode = 0;
+	char	sign;
 
 	*mbuf = *pbuf = *upbuf = '\0';
 	if (parc < 1)
@@ -1259,6 +1271,14 @@ static	int	set_mode(aClient *cptr, aClient *sptr, aChannel *chptr,
 			if (who == cptr && whatt == MODE_ADD && *curr == 'o')
 				break;
 
+			if (ischop && who == sptr &&
+			    whatt == MODE_DEL && *curr == 'o')
+			{
+				chptr->reop = timeofday + 
+					LDELAYCHASETIMELIMIT +
+					myrand() % 300;
+			}
+
 			if (whatt == MODE_ADD)
 			    {
 				lp = &chops[opcnt++];
@@ -1286,6 +1306,28 @@ static	int	set_mode(aClient *cptr, aClient *sptr, aChannel *chptr,
 				opcnt--;
 				break;
 			    }
+
+			/* This is a bit sketchy - since we broadly anonymize all arguments of +o/+v
+			 * people have no way of knowing they got (de)opped/voiced. To fix that, we separate single
+			 * mode in-situ directed at them, thus effectively splitting +-beIkl.. mode changes from +-ov */
+			if (IsAnonymous(chptr) && ischop) {
+				sign = whatt==MODE_ADD?'+':'-';
+				/* Tell to whomever is affected by mode */
+				if (MyPerson(who))
+					sendto_prefix_one(who, IsClient(sptr)?anonclient:sptr, ":%s MODE %s %c%c %s", sptr->name, chptr->chname,
+						sign, *curr, who->name);
+				/* And to mode issuer as well, if it is our client */
+				if (MyPerson(sptr))
+					sendto_prefix_one(sptr, sptr, ":%s MODE %s %c%c %s", sptr->name, chptr->chname,
+						sign, *curr, who->name);
+				change_chan_flag(lp, chptr);
+				sendto_match_servs_v(chptr, cptr, SV_UID, ":%s MODE %s %c%c %s",
+					IsServer(sptr)?sptr->serv->sid:(sptr->user?sptr->user->uid:sptr->name),
+					chptr->chname, sign, *curr, who->user?who->user->uid:who->name);
+				opcnt--;
+				break;
+			}
+
 			plp = lp;
 			/*
 			** If this server noticed the nick change, the
@@ -1789,7 +1831,7 @@ static	int	set_mode(aClient *cptr, aClient *sptr, aChannel *chptr,
 					!strncmp(mode->key, cp, (size_t) KEYLEN))
 					break;
 				*mbuf++ = c;
-				(void)strcat(pbuf, cp);
+				(void)strcat(pbuf, IsAnonymous(chptr)?"*":cp);
 				(void)strcat(upbuf, cp);
 				len += strlen(cp);
 				ulen += strlen(cp);
@@ -1824,13 +1866,6 @@ static	int	set_mode(aClient *cptr, aClient *sptr, aChannel *chptr,
 				mode->limit = nusers;
 				break;
 			case MODE_CHANOP : /* fall through case */
-				if (ischop && lp->value.cptr == sptr &&
-				    lp->flags == (MODE_CHANOP|MODE_DEL))
-				{
-					chptr->reop = timeofday + 
-						LDELAYCHASETIMELIMIT +
-						myrand() % 300;
-				}
 			case MODE_UNIQOP :
 			case MODE_VOICE :
 				*mbuf++ = c;
@@ -1993,9 +2028,13 @@ static	int	can_join(aClient *sptr, aChannel *chptr, char *key)
 	Link	*banned;
 	int	limit = 0;
 
+	/* HACK: NJOIN . channels (well, anything without modes) are still hard locked
+         * by CDELAY. */
 	if (chptr->users == 0 && (bootopt & BOOT_PROT) && 
-	    chptr->history != 0 && *chptr->chname != '!')
-		return (timeofday > chptr->history) ? 0 : ERR_UNAVAILRESOURCE;
+	    chptr->history > timeofday && *chptr->chname != '!' &&
+	    !chptr->mode.mode && !*chptr->mode.key && !chptr->mode.limit && !chptr->mlist)
+               return ERR_UNAVAILRESOURCE;
+
 
 #ifdef CLIENTS_CHANNEL
 	if (*chptr->chname == '&' && !strcmp(chptr->chname, "&CLIENTS")
@@ -2268,39 +2307,43 @@ void	del_invite(aClient *cptr, aChannel *chptr)
 }
 
 /*
+**  Free data associated with ban-like modes and invites
+*/
+static	void	free_chanmodes(aChannel *chptr)
+{
+	Reg	Link *tmp;
+	Link	*obtmp;
+
+	bzero((char *)&chptr->mode, sizeof(Mode));
+	while ((tmp = chptr->invites))
+		del_invite(tmp->value.cptr, chptr);
+	
+	tmp = chptr->mlist;
+	while (tmp)
+	    {
+		obtmp = tmp;
+		tmp = tmp->next;
+		istat.is_banmem -= BanLen(obtmp->value.alist);
+		istat.is_bans--;
+		free_bei(obtmp->value.alist);
+		free_link(obtmp);
+	    }
+	chptr->mlist = NULL;
+}
+
+
+/*
 **  The last user has left the channel, free data in the channel block,
 **  and eventually the channel block itself.
 */
 static	void	free_channel(aChannel *chptr)
 {
-	Reg	Link *tmp;
-	Link	*obtmp;
 	int	len = sizeof(aChannel) + strlen(chptr->chname), now = 0;
 
-        if (chptr->history == 0 || timeofday >= chptr->history)
+        if (chptr->history == 0 || timeofday >= chptr->history) {
 		/* no lock, nor expired lock, channel is no more, free it */
-		now = 1;
+		free_chanmodes(chptr);
 
-	if (*chptr->chname != '!' || now)
-	    {
-		while ((tmp = chptr->invites))
-			del_invite(tmp->value.cptr, chptr);
-		
-		tmp = chptr->mlist;
-		while (tmp)
-		    {
-			obtmp = tmp;
-			tmp = tmp->next;
-			istat.is_banmem -= BanLen(obtmp->value.alist);
-			istat.is_bans--;
-			free_bei(obtmp->value.alist);
-			free_link(obtmp);
-		    }
-		chptr->mlist = NULL;
-	    }
-
-	if (now)
-	    {
 		istat.is_hchan--;
 		istat.is_hchanmem -= len;
 		if (chptr->prevch)
@@ -2315,7 +2358,7 @@ static	void	free_channel(aChannel *chptr)
 			cache_chid(chptr);
 		else
 			MyFree(chptr);
-	    }
+	}
 }
 
 /*
@@ -2332,6 +2375,7 @@ int	m_join(aClient *cptr, aClient *sptr, int parc, char *parv[])
 	Reg	char	*name, *key = NULL;
 	int	i, tmplen, flags = 0;
 	char	*p = NULL, *p2 = NULL;
+	aClient	*acptr;
 
 	/* This is the only case we get JOIN over s2s link. --B. */
 	/* It could even be its own command. */
@@ -2344,7 +2388,7 @@ int	m_join(aClient *cptr, aClient *sptr, int parc, char *parv[])
 			while ((lp = sptr->user->channel))
 			{
 				chptr = lp->value.chptr;
-				sendto_channel_butserv(chptr, sptr,
+				sendto_channel_butanon(chptr, sptr,
 						PartFmt,
 						parv[0], chptr->chname,
 						key ? key : "");
@@ -2501,7 +2545,7 @@ int	m_join(aClient *cptr, aClient *sptr, int parc, char *parv[])
 			while ((lp = sptr->user->channel))
 			{
 				chptr = lp->value.chptr;
-				sendto_channel_butserv(chptr, sptr,
+				sendto_channel_butanon(chptr, sptr,
 						PartFmt,
 						parv[0], chptr->chname,
 						key ? key : "");
@@ -2571,8 +2615,10 @@ int	m_join(aClient *cptr, aClient *sptr, int parc, char *parv[])
 		if (UseModes(name) &&
 			(*name != '#' || !IsSplit()) &&
 		    (!IsRestricted(sptr) || (*name == '&')) && !chptr->users &&
-		    !(chptr->history && *chptr->chname == '!'))
+		    ((chptr->history < timeofday && *chptr->chname == '#') || (!chptr->history && *chptr->chname == '!')))
 		{
+			/* New channel */
+			free_chanmodes(chptr);
 			if (*name == '!')
 				flags |= CHFL_UNIQOP|CHFL_CHANOP;
 			else
@@ -2581,7 +2627,7 @@ int	m_join(aClient *cptr, aClient *sptr, int parc, char *parv[])
 		/* Complete user entry to the new channel */
 		add_user_to_channel(chptr, sptr, flags);
 		/* Notify all users on the channel */
-		sendto_channel_butserv(chptr, sptr, ":%s JOIN :%s",
+		sendto_channel_butanon(chptr, sptr, ":%s JOIN :%s",
 			parv[0], chptr->chname);
 
 		del_invite(sptr, chptr);
@@ -2608,6 +2654,15 @@ int	m_join(aClient *cptr, aClient *sptr, int parc, char *parv[])
 			sendto_one(sptr, ":%s NOTICE %s :Channel %s has the anonymous flag set.", ME, chptr->chname, chptr->chname);
 			sendto_one(sptr, ":%s NOTICE %s :Be aware that anonymity on IRC is NOT securely enforced!", ME, chptr->chname);
 		}
+
+		if (chptr->users == 1 && (bootopt & BOOT_PROT) && 
+		    (timeofday < chptr->history)  && *chptr->chname != '!') {
+			if (IsSplit())
+				sendto_one(sptr, ":%s NOTICE %s :Channel %s is locked (split-mode)", ME, chptr->chname, chptr->chname);
+			else
+				sendto_one(sptr, ":%s NOTICE %s :Channel %s is locked (wait %d minutes to recycle)", ME, chptr->chname, chptr->chname, (chptr->history - timeofday)/60);
+		}
+
 		/*
 	        ** notify other servers
 		*/
@@ -2633,6 +2688,12 @@ int	m_join(aClient *cptr, aClient *sptr, int parc, char *parv[])
 				flags & CHFL_CHANOP ? "@" : "",
 				sptr->user ? sptr->user->uid : parv[0]);
 		}
+
+		/* If the channel was locked, propagate its modes. Note that !channels work differently. */
+		if (*chptr->chname == '#' && chptr->users == 1 && (flags & CHFL_CHANOP) && MyConnect(sptr))
+			for (i < fdas.highest; i >= 0; i--)
+				if ((acptr = local[fdas.fd[i]]) && IsServer(acptr) && !IsMe(acptr))
+					send_channel_modes(acptr, chptr);
 	}
 	return 2;
 }
@@ -2760,6 +2821,7 @@ int	m_njoin(aClient *cptr, aClient *sptr, int parc, char *parv[])
 			/* shouldn't this be a squit-level error? --B. */
 			continue;
 		}
+
 		/* make sure user isn't already on channel */
 		if (IsMember(acptr, chptr))
 		{
@@ -2819,7 +2881,7 @@ int	m_njoin(aClient *cptr, aClient *sptr, int parc, char *parv[])
 		** join from netjoin. 2.10.x is using NJOIN only during
 		** burst, but 2.11 always. Hence we check for EOB from 2.11
 		** to know what kind of NJOIN it is. --B. */
-		sendto_channel_butserv(chptr, acptr, ":%s JOIN %s%s", acptr->name, (
+		sendto_channel_butanon(chptr, acptr, ":%s JOIN %s%s", acptr->name, (
 #ifdef JAPANESE
 			/* XXX-JP: explain why jp-patch had that! */
 			IsServer(sptr) ||
@@ -2871,7 +2933,7 @@ int	m_njoin(aClient *cptr, aClient *sptr, int parc, char *parv[])
 			    }
 			if (cnt == MAXMODEPARAMS)
 			    {
-				sendto_channel_butserv(chptr, &me,
+				sendto_channel_butanon(chptr, &me,
 						       ":%s MODE %s +%s %s",
 						       sptr->name, chptr->chname,
 						       modebuf, parabuf);
@@ -2881,7 +2943,7 @@ int	m_njoin(aClient *cptr, aClient *sptr, int parc, char *parv[])
 	    }
 	/* send eventual MODE leftover */
 	if (cnt)
-		sendto_channel_butserv(chptr, &me, ":%s MODE %s +%s %s",
+		sendto_channel_butanon(chptr, &me, ":%s MODE %s +%s %s",
 				       sptr->name, chptr->chname, modebuf, parabuf);
 
 	/* send NJOIN */
@@ -2979,7 +3041,7 @@ int	m_part(aClient *cptr, aClient *sptr, int parc, char *parv[])
 		else
 			sendto_match_servs(chptr, cptr, PartFmt,
 				   	   sptr->user->uid, name, comment);
-		sendto_channel_butserv(chptr, sptr, PartFmt,
+		sendto_channel_butanon(chptr, sptr, PartFmt,
 				       parv[0], chptr->chname, comment);
 		remove_user_from_channel(sptr, chptr);
 	}
@@ -3083,10 +3145,9 @@ int	m_kick(aClient *cptr, aClient *sptr, int parc, char *parv[])
 				continue; /* No such user left! */
 			if (IsMember(who, chptr))
 			    {
-				/* Local clients. */
-				sendto_channel_butserv(chptr, sptr,
-					":%s KICK %s %s :%s", sptr->name,
-					chptr->chname, who->name, comment);
+				/* Tell the bad news to target */
+				if (MyPerson(who))
+					sendto_prefix_one(who, anonclient, ":%s KICK %s %s :%s", sptr->name, chptr->chname, who->name, comment);
 
 				/* Nick buffer to kick out. */
 				/* as we need space for ",nick", we should add
@@ -3120,7 +3181,17 @@ int	m_kick(aClient *cptr, aClient *sptr, int parc, char *parv[])
 						nbuf[0] = '\0';
 					}
 				}
-				remove_user_from_channel(who, chptr);
+
+				/* Tell the op */
+				if (MyPerson(sptr) && sptr != who)
+					sendto_prefix_one(sptr, sptr, ":%s KICK %s %s :%s", sptr->name, chptr->chname, who->name, comment);
+
+				/* And now tell to everyone except the 2 involved (if channel not anonymous) */
+				if (!remove_user_from_channel(who, chptr))
+					sendto_channel_butanon(anonclient, chptr,
+						":%s KICK %s %s :%s", sptr->name,
+							chptr->chname, who->name, comment);
+
 				penalty += 2;
 				if (MyPerson(sptr) &&
 					/* penalties, obvious */
@@ -3410,8 +3481,7 @@ int	m_list(aClient *cptr, aClient *sptr, int parc, char *parv[])
 		 */
 		for (chptr = channel; chptr; chptr = chptr->nextch)
 		{
-			if (!chptr->users ||    /* empty locked channel */
-			    SecretChannel(chptr) || HiddenChannel(chptr))
+			if (SecretChannel(chptr) || HiddenChannel(chptr))
 			{
 				continue;
 			}
@@ -3874,7 +3944,7 @@ static int	reop_channel(time_t now, aChannel *chptr, int reopmode)
 		change_chan_flag(&op, chptr);
 		sendto_match_servs(chptr, NULL, ":%s MODE %s +o %s",
 			ME, chptr->chname, op.value.cptr->name);
-		sendto_channel_butserv(chptr, &me, ":%s MODE %s +o %s",
+		sendto_channel_butanon(chptr, &me, ":%s MODE %s +o %s",
 			ME, chptr->chname, op.value.cptr->name);
 		chptr->reop = 0;
 		ircstp->is_reop++;
@@ -4001,7 +4071,8 @@ time_t	collect_channel_garbage(time_t now)
 		if (split)	/* net splitted recently and we have a lock */
 			chptr->history += SPLITBONUS; /* extend lock */
 
-		if ((chptr->users == 0) && (chptr->history <= now))
+		/* Only free channels if we are not actually in split via SS/SU */
+		if ((chptr->users == 0) && (chptr->history <= now) && !IsSplit())
 		    {
 			del_ch = chptr;
 

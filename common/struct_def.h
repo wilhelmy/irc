@@ -195,6 +195,9 @@ typedef enum Status {
 #ifdef JAPANESE
 #define	FLAGS_JP	0x10000000 /* jp version, used both for chans and servs */
 #endif
+
+#define	FLAGS_HAVEIP	0x20000000 /* client->ip and client->port have valid info
+				    * do not perform getpeername() with this flag */
 	
 #define	FLAGS_OPER	0x0001 /* operator */
 #define	FLAGS_LOCOP	0x0002 /* local operator -- SRB */
@@ -245,12 +248,14 @@ typedef enum Status {
 #define	SetUnixSock(x)		((x)->flags |= FLAGS_UNIX)
 #endif
 #define	SetDNS(x)		((x)->flags |= FLAGS_DOINGDNS)
+#define	SetHaveIP(x)		((x)->flags |= FLAGS_HAVEIP)
 #define	SetDoneXAuth(x)		((x)->flags |= FLAGS_XAUTHDONE)
 #define	SetEOB(x)		((x)->flags |= FLAGS_EOB)
 #define SetListenerInactive(x)	((x)->flags |= FLAGS_LISTENINACTIVE)
 #define SetKlineExempt(x)	((x)->user->flags |= FLAGS_EXEMPT)
 
 #define	DoingDNS(x)		((x)->flags & FLAGS_DOINGDNS)
+#define	HaveIP(x)		((x)->flags & FLAGS_HAVEIP)
 #define	DoingAuth(x)		((x)->flags & FLAGS_AUTH)
 #define	DoingXAuth(x)		((x)->flags & FLAGS_XAUTH)
 #define	WaitingXAuth(x)		((x)->flags & FLAGS_WXAUTH)
@@ -400,9 +405,11 @@ struct	ListItem	{
 
 #define PFLAG_DELAYED		0x00001
 #define PFLAG_SERVERONLY	0x00002
+#define PFLAG_TPROXY		0x00004
 
 #define IsConfDelayed(x)	((x)->flags & PFLAG_DELAYED)
 #define IsConfServeronly(x)	((x)->flags & PFLAG_SERVERONLY)
+#define IsConfTproxy(x)		((x)->flags & PFLAG_TPROXY)
 
 #define	IsIllegal(x)	((x)->status & CONF_ILLEGAL)
 
@@ -578,7 +585,6 @@ struct Client	{
 	char	*user2;	/* 2nd param of USER */
 	char	*user3;	/* 3rd param of USER */
 #endif
-
 };
 
 #define	CLIENT_LOCAL_SIZE sizeof(aClient)

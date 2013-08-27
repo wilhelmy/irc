@@ -34,7 +34,7 @@ extern aChannel *channel;
 #else /* CHANNEL_C */
 #define EXTERN
 #endif /* CHANNEL_C */
-EXTERN void remove_user_from_channel (aClient *sptr, aChannel *chptr);
+EXTERN int remove_user_from_channel (aClient *sptr, aChannel *chptr);
 EXTERN int is_chan_op (aClient *cptr, aChannel *chptr);
 EXTERN int has_voice (aClient *cptr, aChannel *chptr);
 EXTERN int can_send (aClient *cptr, aChannel *chptr);

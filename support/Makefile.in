@@ -32,6 +32,8 @@ CC = @CC@
 S_CFLAGS = @CFLAGS@ -I. -I../ircd -I../common @IRC_ZLIB_INCLUDE@
 # compiler flags used for the authentication slave
 A_CFLAGS = @CFLAGS@ -I. -I../iauth -I../common @IRC_ZLIB_INCLUDE@
+# compiler flags for tls proxy
+T_CFLAGS = @CFLAGS@ -I. -I../contrib/tproxy -I../common @SSL_INCLUDES@
 # compiler flags used for chkconfig
 CC_CFLAGS = @CFLAGS@ -I. -I../ircd -I../common
 # compiler flags used for the client
@@ -42,6 +44,8 @@ O_CFLAGS = @CFLAGS@ -I. -I../common -DCONTRIB_COMPILE
 LDFLAGS = @LDFLAGS@
 # required libraries, except zlib
 LIBS = @LIBS@
+SSL_INCLUDES = @SSL_INCLUDES@
+SSL_LIBS = @SSL_LIBS@
 MATHLIBS = @MATHLIBS@
 # zlib, eventually
 ZLIBS = @IRC_ZLIB_LIBRARY@
@@ -61,6 +65,7 @@ MKDIRHIER = ../support/mkdirhier
 IRCD = ircd
 IRCD_BIN = $(IRCD)
 IAUTH = iauth
+TPROXY = tproxy
 IRCDWATCH = ircdwatch
 # TK line service binary
 TKSERV = tkserv
@@ -89,6 +94,7 @@ ircd_log_dir = @logdir@
 IRCD_PATH = $(server_bin_dir)/$(IRCD_BIN)
 # Path to authentication slave binary
 IAUTH_PATH = $(server_bin_dir)/$(IAUTH)
+TPROXY_PATH = $(server_bin_dir)/$(TPROXY)
 # Path to the m4 configuration file
 IRCDM4_PATH = $(ircd_conf_dir)/$(IRCD).m4
 
@@ -96,6 +102,7 @@ IRCDM4_PATH = $(ircd_conf_dir)/$(IRCD).m4
 M4_PATH = @M4_PATH@
 
 # server configuration file
+TPROXY_CONF = $(ircd_conf_dir)/tls
 IRCDCONF_PATH = $(ircd_conf_dir)/$(IRCD).conf
 # server configuration file (only for writing klines to)
 KLINE_PATH = $(ircd_conf_dir)/$(IRCD).kline
@@ -107,6 +114,7 @@ IAUTHCONF_PATH = $(ircd_conf_dir)/$(IAUTH).conf
 IRCDPID_PATH = $(ircd_var_dir)/$(IRCD).pid
 # authentication slave PID file
 IAUTHPID_PATH = $(ircd_var_dir)/$(IAUTH).pid
+TPROXYPID_PATH = $(ircd_var_dir)/$(TPROXY).pid
 # server state file
 IRCDTUNE_PATH = $(ircd_var_dir)/$(IRCD).tune
 # ircdwatch PID file
@@ -155,7 +163,7 @@ RM = rm -f
 CLIENT_COMMON_OBJS = clbsd.o cldbuf.o clpacket.o clsend.o clmatch.o \
                      clparse.o clsupport.o
 IRCD_COMMON_OBJS = bsd.o dbuf.o packet.o send.o match.o parse.o \
-                     support.o
+                     support.o fdpass.o
 IRCD_OBJS = channel.o class.o hash.o ircd.o list.o res.o s_auth.o \
               s_bsd.o s_conf.o s_debug.o s_err.o s_id.o s_misc.o s_numeric.o \
               s_send.o s_serv.o s_service.o s_user.o s_zip.o whowas.o \
@@ -164,6 +172,7 @@ IRCD_OBJS = channel.o class.o hash.o ircd.o list.o res.o s_auth.o \
 IAUTH_COMMON_OBJS = clsupport.o clmatch.o # This is a little evil
 IAUTH_OBJS = iauth.o a_conf.o a_io.o a_log.o \
              mod_lhex.o mod_pipe.o mod_rfc931.o mod_socks.o mod_webproxy.o
+TPROXY_OBJS = tproxy.o fdpass.o
 
 CHKCONF_COMMON_OBJS = match.o
 CHKCONF_OBJS = chkconf.o
@@ -175,6 +184,7 @@ help:
 	@echo "        server         : build server programs"
 	@echo "                $(IRCD_BIN)		: build the irc daemon"
 	@echo "                $(IAUTH)		: build the authentication slave"
+	@echo "                $(TPROXY)		: build the TLS proxy"
 	@echo "                chkconf		: build the configuration file checker"
 	@echo "                ircd-mkpasswd	: build ircd-mkpasswd"
 	@echo "                $(IRCDWATCH)	: build ircdwatch"
@@ -186,7 +196,7 @@ help:
 
 all: server
 
-server: $(IRCD_BIN) $(IAUTH) $(CHKCONF) ircd-mkpasswd $(IRCDWATCH)
+server: $(IRCD_BIN) $(IAUTH) $(CHKCONF) ircd-mkpasswd $(IRCDWATCH) $(TPROXY)
 
 $(IRCD_BIN): $(IRCD_COMMON_OBJS) $(IRCD_OBJS)
 	$(RM) $@
@@ -203,6 +213,10 @@ $(CHKCONF): $(CHKCONF_COMMON_OBJS) $(CHKCONF_OBJS)
 	$(CC) $(LDFLAGS) -o $@ $(CHKCONF_COMMON_OBJS) $(CHKCONF_OBJS) $(LIBS)
 
 # stuff in contrib/
+
+$(TPROXY): $(TPROXY_OBJS)
+	$(RM) $@
+	$(CC) $(LDFLAGS) -o $@ $(TPROXY_OBJS) $(LIBS) $(SSL_LIBS)
 
 $(IRCDWATCH): ircdwatch.o clsupport.o clmatch.o
 	$(RM) $(IRCDWATCH)
@@ -240,10 +254,14 @@ install-server: install-ircd server
 	-@if [ ! -d $(ircd_log_dir) ]; then \
 		$(MKDIRHIER) $(ircd_log_dir); \
 	fi
+	-@if [ ! -d $(TPROXY_CONF) ]; then \
+		$(MKDIRHIER) $(TPROXY_CONF); \
+	fi
 	$(INSTALL_PROGRAM) -m $(ircd_mode) $(IAUTH) $(server_bin_dir)
 	$(INSTALL_PROGRAM) -m $(ircd_mode) $(CHKCONF) $(server_bin_dir)
 	$(INSTALL_PROGRAM) -m $(ircd_mode) ircd-mkpasswd $(server_bin_dir)
 	$(INSTALL_PROGRAM) -m $(ircd_mode) $(IRCDWATCH) $(server_bin_dir)
+	$(INSTALL_PROGRAM) -m $(ircd_mode) $(TPROXY) $(server_bin_dir)
 	$(RM) $(IRCDM4_PATH)
 	../ircd/buildm4 $(IRCDM4_PATH)
 	$(INSTALL_DATA) ../doc/ircd.8 $(server_man_dir)
@@ -252,6 +270,8 @@ install-server: install-ircd server
 	$(INSTALL_DATA) ../contrib/ircdwatch/ircdwatch.8 $(server_man_dir)
 	$(INSTALL_DATA) ../doc/ircd.conf.example $(ircd_conf_dir)
 	$(INSTALL_DATA) ../doc/iauth.conf.example $(ircd_conf_dir)
+	$(INSTALL_DATA) ../contrib/tproxy/server.cert $(TPROXY_CONF)
+	$(INSTALL_DATA) ../contrib/tproxy/server.key $(TPROXY_CONF)
 	-@if [ ! -f $(IAUTHCONF_PATH) ]; then \
 		$(INSTALL_DATA) ../doc/iauth.conf.example $(IAUTHCONF_PATH); \
 	fi
@@ -312,6 +332,9 @@ match.o: ../common/match.c setup.h config.h ../common/struct_def.h
 parse.o: ../common/parse.c setup.h config.h ../common/struct_def.h
 	$(CC) $(S_CFLAGS) -c -o $@ ../common/parse.c
 
+fdpass.o: ../common/fdpass.c setup.h config.h ../common/struct_def.h
+	$(CC) $(S_CFLAGS) -c -o $@ ../common/fdpass.c
+
 support.o: ../common/support.c setup.h config.h ../common/struct_def.h ../common/patchlevel.h
 	$(CC) $(S_CFLAGS) -c -o $@ ../common/support.c
 
@@ -346,7 +369,10 @@ s_auth.o: ../ircd/s_auth.c setup.h config.h ../common/struct_def.h
 	$(CC) $(S_CFLAGS) -c -o $@ ../ircd/s_auth.c
 
 s_bsd.o: ../ircd/s_bsd.c setup.h config.h ../common/struct_def.h
-	$(CC) $(S_CFLAGS) -DIRCDPID_PATH="\"$(IRCDPID_PATH)\"" -DIAUTH_PATH="\"$(IAUTH_PATH)\"" -DIAUTH="\"$(IAUTH)\"" -c -o $@ ../ircd/s_bsd.c
+	$(CC) $(S_CFLAGS) -DIRCDPID_PATH="\"$(IRCDPID_PATH)\"" -DIAUTH_PATH="\"$(IAUTH_PATH)\"" -DIAUTH="\"$(IAUTH)\"" \
+	-DTPROXY_PATH="\"$(TPROXY_PATH)\"" \
+	-DTPROXY="\"$(TPROXY)\"" \
+	-c -o $@ ../ircd/s_bsd.c
 
 s_conf.o: ../ircd/s_conf.c setup.h config.h ../common/struct_def.h ../ircd/config_read.c
 	$(CC) $(S_CFLAGS) -DIRCDMOTD_PATH="\"$(IRCDMOTD_PATH)\"" \
@@ -399,6 +425,9 @@ res_mkquery.o: ../ircd/res_mkquery.c setup.h config.h ../common/struct_def.h
 
 iauth.o: ../iauth/iauth.c config.h ../common/struct_def.h setup.h
 	$(CC) $(A_CFLAGS) -DIAUTHPID_PATH="\"$(IAUTHPID_PATH)\"" -c -o $@ ../iauth/iauth.c
+
+tproxy.o: ../contrib/tproxy/tproxy.c config.h ../common/struct_def.h
+	$(CC) $(T_CFLAGS) -DTPROXYPID_PATH="\"$(TPROXYPID_PATH)\"" -DTPROXY_CONF="\"$(TPROXY_CONF)\"" -c -o $@ ../contrib/tproxy/tproxy.c
 
 a_conf.o: ../iauth/a_conf.c config.h ../common/struct_def.h setup.h
 	$(CC) $(A_CFLAGS) -DIAUTHCONF_PATH="\"$(IAUTHCONF_PATH)\"" -c -o $@ ../iauth/a_conf.c

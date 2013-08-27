@@ -335,9 +335,12 @@ int	send_queued(aClient *to)
 
 static	anUser	ausr;
 static	aClient	anon;
+aClient	*anonclient;
 
 void initanonymous(void)
 {
+	anonclient = &anon;
+
 	memset(&ausr, 0, sizeof(anUser));
 	strcpy(ausr.username, "anonymous");
 	strcpy(ausr.uid, "0ANONYM");
@@ -730,6 +733,51 @@ void	sendto_channel_butserv(aChannel *chptr, aClient *from, char *pattern, ...)
 	if (IsAnonymous(chptr) && IsClient(from))
 	    {
 		lfrm = &anon;
+	    }
+
+	for (lp = chptr->clist; lp; lp = lp->next)
+		if (MyClient(acptr = lp->value.cptr) && acptr != from)
+		    {
+			if (!len)
+			    {
+				va_list	va;
+				va_start(va, pattern);
+				len = vsendpreprep(acptr, lfrm, pattern, va);
+				va_end(va);
+			    }
+			(void)send_message(acptr, psendbuf, len);
+		    }
+
+	return;
+}
+
+/*
+ * sendto_channel_butanon
+ *
+ * Send a message to all members of a channel that are connected to this
+ * server. In case the channel is anonymous, send only to originating user (if local)
+ */
+void	sendto_channel_butanon(aChannel *chptr, aClient *from, char *pattern, ...)
+{
+	Reg	Link	*lp;
+	Reg	aClient	*acptr, *lfrm = from;
+	int	len = 0;
+
+	if (IsAnonymous(chptr) && (from == anonclient))
+		return;
+
+	if (MyClient(from))
+	    {	/* Always send to the client itself */
+		va_list	va;
+		va_start(va, pattern);
+		vsendto_prefix_one(from, from, pattern, va);
+		va_end(va);
+		if (IsQuiet(chptr) || IsAnonymous(chptr))	/* Really shut up.. */
+			return;
+	    }
+	if (IsAnonymous(chptr) && IsClient(from))
+	    {
+		return;
 	    }
 
 	for (lp = chptr->clist; lp; lp = lp->next)

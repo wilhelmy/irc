@@ -28,6 +28,9 @@
 #else /* SEND_C */
 #define EXTERN
 #endif /* SEND_C */
+
+EXTERN aClient *anonclient;
+
 EXTERN int send_queued (aClient *to);
 EXTERN int vsendto_one (aClient *to, char *pattern, va_list va);
 EXTERN int sendto_one (aClient *to, char *pattern, ...);
