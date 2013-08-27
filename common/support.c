@@ -794,7 +794,7 @@ char	*make_version(void)
 		sprintf(ver + strlen(ver), "%c%d", DEVLEVEL, dv);
 	if (pl)	/* patchlevel */
 		sprintf(ver + strlen(ver), "p%d", pl);
-	strcat(ver, "+tls");
+	strcat(ver, "+xp");
 	return mystrdup(ver);
 }
 
