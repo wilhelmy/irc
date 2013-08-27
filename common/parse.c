@@ -756,13 +756,11 @@ int	parse(aClient *cptr, char *buffer, char *bufend)
 	para[++i] = NULL; /* at worst, ++i is paramcount (MPAR) */
 	if (mptr == NULL)
 		return (do_numeric(numeric, cptr, from, i, para));
+#ifndef	IDLE_FROM_MSG
 	if (IsRegisteredUser(cptr) &&
-#ifdef	IDLE_FROM_MSG
-	    fhandler == m_private)
-#else
 	    fhandler != m_ping && fhandler != m_pong)
-#endif
 		from->user->last = timeofday;
+#endif
 	Debug((DEBUG_DEBUG, "Function(%d): %#x = %s parc %d parv %#x",
 		status, fhandler, mptr->cmd, i, para));
 	if (fhandler != m_nop && fhandler != m_nopriv

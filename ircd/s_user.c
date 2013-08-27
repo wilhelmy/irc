@@ -1483,6 +1483,8 @@ static	int	m_message(aClient *cptr, aClient *sptr, int parc,
 			&& (acptr = find_uid(nick, NULL))) || 
 			(acptr = find_person(nick, NULL)))
 		    {
+			if (sptr->user)
+				sptr->user->last = timeofday;
 			if (!notice && MyConnect(sptr) &&
 			    acptr->user && (acptr->user->flags & FLAGS_AWAY))
 				send_away(sptr, acptr);
@@ -1496,6 +1498,9 @@ static	int	m_message(aClient *cptr, aClient *sptr, int parc,
 		if ((IsPerson(sptr) || IsService(sptr) || IsServer(sptr)) &&
 		    (chptr = find_channel(nick, NullChn)))
 		    {
+			/* Prevent /wii correlation with public message timestamps */
+			if (!IsAnonymous(chptr) && sptr->user)
+				sptr->user->last = timeofday;
 			if (can_send(sptr, chptr) == 0 || IsServer(sptr))
 				sendto_channel_butone(cptr, sptr, chptr,
 						      ":%s %s %s :%s",
@@ -1506,7 +1511,9 @@ static	int	m_message(aClient *cptr, aClient *sptr, int parc,
 					   ME, BadTo(parv[0]), nick);
 			continue;
 		    }
-	
+
+		if (sptr->user)
+			sptr->user->last = timeofday;
 		/*
 		** the following two cases allow masks in NOTICEs
 		** (for OPERs only)

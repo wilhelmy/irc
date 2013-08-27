@@ -873,11 +873,6 @@ static	void	exit_one_client(aClient *cptr, aClient *sptr, aClient *from,
 						lp->value.chptr->history = timeofday + DELAYCHASETIMELIMIT;
 					}
 				}
-				if (IsAnonymous(lp->value.chptr) &&
-				    !IsQuiet(lp->value.chptr))
-				{
-					sendto_channel_butserv(lp->value.chptr, sptr, ":%s PART %s :None", sptr->name, lp->value.chptr->chname);
-				}
 				remove_user_from_channel(sptr,lp->value.chptr);
 			}
 
