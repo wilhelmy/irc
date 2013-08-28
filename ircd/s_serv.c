@@ -1305,8 +1305,14 @@ int	m_server_estab(aClient *cptr, char *sid, char *versionbuf)
 			else
 			if (rv >= 210991700) /* XXX remove soon */
 			{
-				sendto_one(cptr, ":%s NJOIN %s .",
-					me.serv->sid, chptr->chname);
+				/* Prevent locking desynchs:
+				 * send only locked channels using original 1800/5400 limits */
+				int cd = *chptr->chname == '!' ?
+					(LCHDELAYCHASETIMELIMIT - LDELAYCHASETIMELIMIT) :
+					(CHDELAYCHASETIMELIMIT - DELAYCHASETIMELIMIT);
+				if (chptr->history && ((chptr->history - cd) > timeofday))
+					sendto_one(cptr, ":%s NJOIN %s .",
+						me.serv->sid, chptr->chname);
 				if (*chptr->chname == '!')
 					send_channel_modes(cptr, chptr);
 			}
