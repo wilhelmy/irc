@@ -503,6 +503,7 @@ int is_authorized(char *pwd, char *host)
                         /* walk thru the list */
                         while ((retv == 0) && (token = (char *) strtok(NULL, ",")))
                         {
+			    negate = 0;
                             if (*token == '!')
                             {
                                 token++;
@@ -549,7 +550,6 @@ int is_authorized(char *pwd, char *host)
 	        tks_log("Out of memory."); break;
         case -1:
             sendto_user("You are not allowed to tkline \"%s\".", host); break;
-        default:
     }
 
     retv = retv < 0 ? 0 : retv;    /* errors do not allow authorization */
@@ -1113,20 +1113,6 @@ int main(int argc, char *argv[])
             exit(1);
         }
     } else {
-        memset(&localaddr, 0, sizeof(struct sockaddr_in));
-        localaddr.sin_family = AF_INET;
-        localaddr.sin_addr   = LocalHostAddr;
-        localaddr.sin_port   = 0;
-        if (bind(fd, (struct sockaddr *) &localaddr, sizeof(localaddr)))
-        {
-            perror("bind");
-            close(fd);
-            exit(1);
-        }
-
-        memset(&server, 0, sizeof(struct sockaddr_in));
-        memset(&LocalHostAddr, 0, sizeof(LocalHostAddr));
-
         if (!(hp = gethostbyname(host)))
         {
             perror("resolv");
@@ -1135,7 +1121,6 @@ int main(int argc, char *argv[])
         }
 
         memmove(&(server.sin_addr), hp->h_addr, hp->h_length);
-        memmove((void *) &LocalHostAddr, hp->h_addr, sizeof(LocalHostAddr));
         server.sin_family = AF_INET;
         server.sin_port   = htons(atoi(port));
 
@@ -1153,6 +1138,7 @@ int main(int argc, char *argv[])
     timeout.tv_usec = 1000;
     timeout.tv_sec  = 10;
 
+#if 0
     /* daemonization... i'm sure it's not complete */
     switch (fork())
     {
@@ -1171,6 +1157,7 @@ int main(int argc, char *argv[])
     default:
         return 0;
     }
+#endif
 
     /* listen for server output and parse it */
     while (!eof)
