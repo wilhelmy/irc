@@ -736,7 +736,8 @@ int	register_user(aClient *cptr, aClient *sptr, char *nick, char *username)
 			" :%s"
 # endif
 			, user->uid, nick, user->username,
-			user->host, user->sip
+			user->host,
+			IsSpoofed(sptr) ? "127.0.0.1" : user->sip
 # if (CLIENTS_CHANNEL_LEVEL & CCL_CONNINFO)
 #  ifdef XLINE
          , savedusername, sptr->user2, sptr->user3

@@ -192,6 +192,7 @@ typedef enum Status {
 #define FLAGS_RESTRICT	0x0010 /* restricted user */
 #define FLAGS_AWAY	0x0020 /* user is away */
 #define FLAGS_EXEMPT    0x0040 /* user is exempted from k-lines */
+#define FLAGS_SPOOFED	0x0080 /* user is spoofed */
 #ifdef XLINE
 #define FLAGS_XLINED	0x0100	/* X-lined client */
 #endif
@@ -220,6 +221,7 @@ typedef enum Status {
 #define	IsDead(x)		((x)->flags & FLAGS_DEADSOCK)
 #define	IsBursting(x)		(!((x)->flags & FLAGS_EOB))
 #define IsKlineExempt(x)        ((x)->user && (x)->user->flags & FLAGS_EXEMPT)
+#define IsSpoofed(x)		((x)->user && (x)->user->flags & FLAGS_SPOOFED)
 
 #define	SetDead(x)		((x)->flags |= FLAGS_DEADSOCK)
 #define	CBurst(x)		((x)->flags & FLAGS_CBURST)
@@ -238,6 +240,7 @@ typedef enum Status {
 #define	SetEOB(x)		((x)->flags |= FLAGS_EOB)
 #define SetListenerInactive(x)	((x)->flags |= FLAGS_LISTENINACTIVE)
 #define SetKlineExempt(x)	((x)->user->flags |= FLAGS_EXEMPT)
+#define SetSpoofed(x)		((x)->user->flags |= FLAGS_SPOOFED)
 
 #define	DoingDNS(x)		((x)->flags & FLAGS_DOINGDNS)
 #define	DoingAuth(x)		((x)->flags & FLAGS_AUTH)
@@ -375,6 +378,7 @@ struct	ListItem	{
 #ifdef XLINE
 #define CFLAG_XEXEMPT		0x00080
 #endif
+#define CFLAG_SPOOFED		0x00200
 
 #define IsConfRestricted(x)	((x)->flags & CFLAG_RESTRICTED)
 #define IsConfRNoDNS(x)		((x)->flags & CFLAG_RNODNS)
@@ -386,6 +390,7 @@ struct	ListItem	{
 #ifdef XLINE
 #define IsConfXlineExempt(x)	((x)->flags & CFLAG_XEXEMPT)
 #endif
+#define IsConfSpoofed(x)	((x)->flags & CFLAG_SPOOFED)
 
 #define PFLAG_DELAYED		0x00001
 #define PFLAG_SERVERONLY	0x00002
