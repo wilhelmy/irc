@@ -763,9 +763,6 @@ void	sendto_channel_butanon(aChannel *chptr, aClient *from, char *pattern, ...)
 	Reg	aClient	*acptr, *lfrm = from;
 	int	len = 0;
 
-	if (IsAnonymous(chptr) && (from == anonclient))
-		return;
-
 	if (MyClient(from))
 	    {	/* Always send to the client itself */
 		va_list	va;
