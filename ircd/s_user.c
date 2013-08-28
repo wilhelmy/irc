@@ -3373,13 +3373,13 @@ int	is_allowed(aClient *cptr, long function)
 	Link	*tmp;
 
 	/* We cannot judge not our clients. Yet. */
-	if (!MyConnect(cptr) || IsServer(cptr))
+	if ((!MyConnect(cptr) && (IsAnOper(cptr)||IsService(cptr))) || IsServer(cptr))
 		return 1;
 
 	/* minimal control, but nothing else service can do anyway. */
 	if (IsService(cptr))
 	{
-		if (function == ACL_TKLINE &&
+		if ((function == ACL_TKLINE || function == ACL_UNTKLINE) &&
 			(cptr->service->wants & SERVICE_WANT_TKLINE))
 			return 1;
 		if (function == ACL_KLINE &&

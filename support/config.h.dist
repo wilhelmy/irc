@@ -113,6 +113,22 @@
  */
 #define TKLINE
 
+/*
+ * Enable remote TKLINE/UNTKLINE usage via ENCAP.
+ * Example usage to issue tkline on remote mask of servers:
+ * /quote encap *.cz tkline 1 *@*.sk :abusive botnet
+ * This works across unpatched servers.
+ */
+
+#define TKLINE_REMOTE
+
+
+/*
+ * Define this if you want to have TKLINE and UNTKLINE commands
+ * for opers and services.
+ */
+#define TKLINE
+
 /* If you want tklines to be limited in time, define this (seconds). */
 /* #define TKLINE_MAXTIME 86400 */
 

@@ -3838,46 +3838,122 @@ static void report_listeners(aClient *sptr, char *to)
 	}
 }
 
+/* Passing to parse() everything would be too dangerous
+ * as not all commands expect remote users.
+ * Because only small amount of commands are likely candidates for encap,
+ * we use whitelist approach, instead of adding flag field to handlers.
+ */
+static	char *encap_whitelisted(char *cmd)
+{
+	int i;
+	char *whitelist[] = {
+#ifdef TKLINE_REMOTE
+		"TKLINE", "UNTKLINE",
+#endif
+		"VERSION", "ADMIN",
+		NULL
+	};
+	for (i = 0; whitelist[i]; i++)
+		if (!strcasecmp(cmd, whitelist[i]))
+			return whitelist[i];
+	return NULL;
+}
+
 /*
 ** allows ENCAPsulation of commands
 ** parv[0] is ignored (though it's source)
 ** parv[1] is target mask
 ** parv[2] is command
-** the rest is optional and is used by command as its own params
+** parv[3] is args
 */
-
 int	m_encap(aClient *cptr, aClient *sptr, int parc, char *parv[])
 {
 	char buf[BUFSIZE];
-	int i, len;
+	char *mask, *whitelisted;
+	char *toparse, *p;
+	int i, len, matched;
 
-	/* Prepare ENCAP buffer... */
-	len = sprintf(buf, ":%s ENCAP", sptr->serv->sid);
-	for (i = 1; i < parc; i++)
-	{
-		if (len + strlen(parv[i]) >= BUFSIZE-2)
+	mask = parv[1];
+	if (IsServer(cptr)) {
+		/* Prepare ENCAP buffer... */
+		len = sprintf(buf, ":%s ENCAP", sptr->serv->sid);
+		for (i = 1; i < parc; i++)
 		{
-			/* This can get cut. */
-			sendto_flag(SCH_ERROR, "ENCAP too long (%s)", buf);
-			/* Sending incomplete ENCAP means data corruption.
-			** Should we squit the link that fed us this? --B. */
+			if (len + strlen(parv[i]) >= BUFSIZE-2)
+			{
+				/* This can get cut. */
+				sendto_flag(SCH_ERROR, "ENCAP too long (%s)", buf);
+				/* Sending incomplete ENCAP means data corruption.
+				** Should we squit the link that fed us this? --B. */
+				return 1;
+			}
+			if (i == 3) toparse = buf + len;
+			if (i >= 3 && i == parc - 1)
+				len += sprintf(buf+len, " :%s", parv[i]);
+			else
+				len += sprintf(buf+len, " %s", parv[i]);
+		}
+		Debug((DEBUG_SEND,"m_encap(serv->serv): %s", buf));
+		/* ...and broadcast it. */
+		sendto_serv_v(cptr, SV_UID, "%s", buf);
+		/* Nothing of real interest here .. */
+		if (parc < 5 || strcmp(parv[2], "PARSE") || !encap_whitelisted(parv[4]))
+			return 0;
+	} else if (MyClient(cptr)) {
+		/* For now .. enforced in parse.c handler too */
+		if (!IsAnOper(sptr))
+			return m_nopriv(cptr, sptr, parc, parv);
+
+		/* With great power comes great responsibility.
+		 * Avoid the usual typos in target mask which would match *.
+		 * Both for sid and tld.
+		 * This is not meant to protect from oper abuse - as it can be
+		 * easily circumvented, just genuine mistakes.
+		 */
+		if (IsPerson(sptr)) {
+			p = mask;
+			while (*p && (*p == '.' || *p =='*')) p++;
+			if (!*p || strlen(mask) <= 3) {
+				sendto_one(sptr, replies[ERR_WILDTOPLEVEL],
+					ME, BadTo(parv[0]), mask);
+				return 2;
+			}
+		}
+
+		/* Check that the command is whitelisted */
+		whitelisted = encap_whitelisted(parv[2]);
+		if (!whitelisted) {
+			sendto_one(sptr, ":%s %d %s %s :Unknown command",
+				me.name, ERR_UNKNOWNCOMMAND, sptr->name, parv[2]);
 			return 1;
 		}
-		if (i >= 3 && i == parc - 1)
-			len += sprintf(buf+len, " :%s", parv[i]);
-		else
-			len += sprintf(buf+len, " %s", parv[i]);
+
+		/* Resulting format: ":SID ENCAP *.mask sender!u@h COMMAND ..." */
+		len = sprintf(buf, ":%s ENCAP %s PARSE", me.serv->sid, mask);
+		toparse = buf + len;
+		len += sprintf(buf + len, " %s %s", sptr->name, whitelisted);
+		for (i = 3; i < parc; i++)
+			len += sprintf(buf + len, " %s%s", i+1 == parc?":":"", parv[i]);
+		Debug((DEBUG_SEND,"m_encap(cli->serv): %s", buf));
+		sendto_serv_v(cptr, SV_UID, "%s", buf);
 	}
-	/* ...and broadcast it. */
-	sendto_serv_v(cptr, SV_UID, "%s", buf);
 
-	/* FIXME: in 2.11.1 */
-	/* Do we match parv[1]? */
-	/* Copying things from parse() */
-	/* STAT_ENCAP handler for parv[2] */
-	/* Call handler function with parc-2, parv+2 */
+	/* Target is either FQDN mask, such as *.cz or SID, like 0PN* */
+	if ((strchr(mask, '.') && match(mask, me.name)) || match(mask, me.serv->sid)) {
+		/* create prefix */
+		toparse[0] = ':';
 
-	return 0;
+		/* We might end up with :prefix :COMMAND here, sigh .. */
+		p = strchr(toparse, ' ');
+		if (p[1] == ':') p[1] = ' ';
+
+		/* toparse now contains: :sendername COMMAND ... :lastarg.
+		 * invariant: parse() ignores :sendername if cptr is client
+		 */
+		Debug((DEBUG_DEBUG,"m_encap(PARSE): %s", toparse));
+		parse(cptr, toparse, toparse + strlen(toparse)); /* Inception .. */
+	}
+	return 5;
 }
 
 /* announces server DIE */

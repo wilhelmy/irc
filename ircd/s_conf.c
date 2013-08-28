@@ -2680,6 +2680,14 @@ int	prep_kline(int tkline, aClient *cptr, aClient *sptr, int parc, char **parv)
 		if (time < 0) /* overflown, must have wanted bignum :) */
 			time = TKLINE_MAXTIME;
 #endif
+#ifdef TKLINE_MAXTIME_REMOTE
+		if (!MyClient(sptr)) {
+			if (time > TKLINE_MAXTIME_REMOTE)
+				time = TKLINE_MAXTIME_REMOTE;
+			if (time < 0) /* overflown, must have wanted bignum :) */
+				time = TKLINE_MAXTIME_REMOTE;
+		}
+#endif
 		user = parv[2];
 		reason = parv[3];
 	}
