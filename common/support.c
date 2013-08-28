@@ -782,7 +782,7 @@ dgetsreturnbuf:
 char	*make_version(void)
 {
 	int ve, re, mi, dv, pl;
-	char ver[15];
+	char ver[100];
 
 	sscanf(PATCHLEVEL, "%2d%2d%2d%2d%2d", &ve, &re, &mi, &dv, &pl);
 	/* version & revision */
@@ -794,7 +794,7 @@ char	*make_version(void)
 		sprintf(ver + strlen(ver), "%c%d", DEVLEVEL, dv);
 	if (pl)	/* patchlevel */
 		sprintf(ver + strlen(ver), "p%d", pl);
-	strcat(ver, "+xp");
+	strcat(ver, "+xp2");
 	return mystrdup(ver);
 }
 
