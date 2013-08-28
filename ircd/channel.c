@@ -1305,8 +1305,8 @@ static	int	set_mode(aClient *cptr, aClient *sptr, aChannel *chptr,
 			 * mode in-situ directed at them, thus effectively splitting +-beIkl.. mode changes from +-ov */
 			if (IsAnonymous(chptr) && ischop) {
 				sign = whatt==MODE_ADD?'+':'-';
-				/* Tell to whomever is affected by mode */
-				if (MyPerson(who))
+				/* Tell to whomever is affected by mode, unless same as sender */
+				if (MyPerson(who) && who != sptr)
 					sendto_prefix_one(who, IsClient(sptr)?anonclient:sptr, ":%s MODE %s %c%c %s", sptr->name, chptr->chname,
 						sign, *curr, who->name);
 				/* And to mode issuer as well, if it is our client */
