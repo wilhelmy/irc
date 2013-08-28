@@ -441,6 +441,12 @@ static	aConfItem 	*initconf(void)
 				aconf->status = CONF_CLIENT;
 				mandatory_found |= CONF_CLIENT;
 				break;
+#ifdef CHANJUPE
+			case 'j':
+			case 'J': /* Channel jupe */
+				aconf->status = CONF_CHANJUPE;
+				break;
+#endif
 			case 'K': /* Kill user line on irc.conf           */
 				aconf->status = CONF_KILL;
 				break;
@@ -587,6 +593,9 @@ static	aConfItem 	*initconf(void)
 				case 'p':
 				case 'P':
 				case 't':
+#ifdef CHANJUPE
+				case 'J':
+#endif
 					break;
 				case ' ':
 				case '\t':

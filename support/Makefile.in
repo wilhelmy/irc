@@ -106,6 +106,8 @@ TPROXY_CONF = $(ircd_conf_dir)/tls
 IRCDCONF_PATH = $(ircd_conf_dir)/$(IRCD).conf
 # server configuration file (only for writing klines to)
 KLINE_PATH = $(ircd_conf_dir)/$(IRCD).kline
+# server configuration file (only for writing chanjupes to)
+CHANJUPE_PATH = $(ircd_conf_dir)/$(IRCD).jupe
 # server Message Of The Day
 IRCDMOTD_PATH = $(ircd_conf_dir)/$(IRCD).motd
 # authentication slave configuration file
@@ -378,6 +380,7 @@ s_conf.o: ../ircd/s_conf.c setup.h config.h ../common/struct_def.h ../ircd/confi
 	$(CC) $(S_CFLAGS) -DIRCDMOTD_PATH="\"$(IRCDMOTD_PATH)\"" \
 	-DIRCDM4_PATH="\"$(IRCDM4_PATH)\"" -DIRCDCONF_PATH="\"$(IRCDCONF_PATH)\"" \
 	-DKLINE_PATH="\"$(KLINE_PATH)\"" \
+	-DCHANJUPE_PATH="\"$(CHANJUPE_PATH)\"" \
 	-DIRCDCONF_DIR="\"$(ircd_conf_dir)/\"" \
 	-DM4_PATH="\"$(M4_PATH)\"" -c -o $@ ../ircd/s_conf.c
 

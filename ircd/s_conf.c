@@ -75,6 +75,9 @@ char		*networkname = NULL;
 #ifdef TKLINE
 aConfItem	*tkconf = NULL;
 #endif
+#ifdef CHANJUPE
+aConfItem	*jconf = NULL;
+#endif
 
 /* Parse I-lines flags from string.
  * D - Restricted, if no DNS.
@@ -288,6 +291,10 @@ char	*oline_flags_to_string(long flags)
 		*s++ = 'p';
 	if (flags & ACL_TRACE)
 		*s++ = 't';
+#ifdef CHANJUPE
+	if (flags & ACL_CHANJUPE)
+		*s++ = 'J';
+#endif
 #ifdef ENABLE_SIDTRACE
 	if (flags & ACL_SIDTRACE)
 		*s++ = 'v';
@@ -335,6 +342,9 @@ long	oline_flags_parse(char *string)
 		case 't': tmp |= ACL_TRACE; break;
 #ifdef ENABLE_SIDTRACE
 		case 'v': tmp |= ACL_SIDTRACE; break;
+#endif
+#ifdef CHANJUPE
+		case 'J': tmp |= ACL_CHANJUPE; break;
 #endif
 		}
 	}
@@ -936,6 +946,26 @@ aConfItem	*find_me(void)
 	return (aconf);
 }
 
+#ifdef CHANJUPE
+aConfItem   *find_chanjupe(char *name)
+{
+	Reg aConfItem   *aconf;
+	if (!name) 
+	{
+		return NULL;
+	}
+	for (aconf = jconf; aconf; aconf = aconf->next)
+	{
+		if (!match(aconf->host, name))
+		{
+			/* We found it */
+			return aconf;
+		}
+	}
+	return NULL;
+}
+#endif
+
 /*
  * attach_confs
  *  Attach a CONF line to a client if the name passed matches that for
@@ -1290,6 +1320,15 @@ int	rehash(aClient *cptr, aClient *sptr, int sig)
 		*tmp = tmp2->next;
 		free_conf(tmp2);
 	    }
+
+#ifdef CHANJUPE
+	tmp = &jconf;
+	while ((tmp2 = *tmp))
+	    {
+		*tmp = tmp2->next;
+		free_conf(tmp2);
+	    }
+#endif
 
 	/*
 	 * We don't delete the class table, rather mark all entries
@@ -1651,6 +1690,12 @@ int 	initconf(int opt)
 			case 'I':
 				aconf->status = CONF_CLIENT;
 				break;
+#ifdef CHANJUPE
+			case 'J':
+			case 'j': /* chanjupe */
+				aconf->status = CONF_CHANJUPE;
+				break;
+#endif
 			case 'K': /* Kill user line on irc.conf           */
 				aconf->status = CONF_KILL;
 				break;
@@ -1991,6 +2036,12 @@ int 	initconf(int opt)
 			kconf = aconf;
 		    }
 		else
+#ifdef CHANJUPE
+		if (aconf->status & CONF_CHANJUPE) {
+			aconf->next = jconf;
+			jconf = aconf;
+		} else
+#endif
 		    {
 			aconf->next = conf;
 			conf = aconf;
@@ -2853,6 +2904,116 @@ int	m_kline(aClient *cptr, aClient *sptr, int parc, char **parv)
 	return prep_kline(0, cptr, sptr, parc, parv);
 }
 #endif
+
+/* Taken verbatim from -fic */
+#ifdef CHANJUPE
+char *escape_strncpy(char *dst, char *src, int n) 
+{
+	char *tmp = dst;
+	while (*src && (n-- > 1))
+	{
+		/* # or \ is escaped in conf with one \ (Example: \#) */
+		if ((*src == '#') || (*src == '\\'))
+		{
+			/* There needs to be room for another character... */
+			if (n-- > 1)
+			{
+				*tmp++ = '\\';
+			} else {
+				break;
+			}
+		}
+		/* delimiter is escaped with two \ (Example \\:) */
+		else if ((*src == IRCDCONF_DELIMITER))
+		{
+			/* There needs to be room for two characters... */
+			if (n-- > 2)
+			{
+				*tmp++ = '\\';
+				*tmp++ = '\\';
+			} else {
+				break;
+			}
+		}
+		*tmp++ = *src++;
+	}
+	/* ...and for the terminating '\0' of course */
+	*tmp++ = '\0';
+	return dst;
+}
+/*
+ * parv[0] - source
+ * parv[1] - channel
+ * parv[2] - reason
+ */
+int    m_resv(aClient *cptr, aClient *sptr, int parc, char *parv[])
+{
+	aConfItem *aconf;
+	int out;
+	char buff[BUFSIZE*2];
+	time_t  current_time;
+	char channel[(CHANNELLEN*2)+1], reason[(TOPICLEN*2)+1];
+
+	if (!is_allowed(sptr, ACL_CHANJUPE))
+		return m_nopriv(cptr, sptr, parc, parv);
+
+	aconf = make_conf();
+	aconf->status = CONF_CHANJUPE;
+	DupString(aconf->host, parv[1]);
+	DupString(aconf->passwd, parv[2]);
+	aconf->port = 0;
+	aconf->next = jconf;
+	jconf = aconf;
+
+	/* Do the escaping of the parameters */
+
+	escape_strncpy(channel, parv[1], sizeof(channel)); 
+	escape_strncpy(reason, parv[2], sizeof(reason));
+
+	if ((out = open(CHANJUPE_PATH, O_WRONLY|O_APPEND))==-1)
+	{
+		sendto_one(sptr,":%s NOTICE %s :Problem opening server configfile",
+				 ME, parv[0]);
+		return 1;
+	}
+	time(&current_time);
+
+	/* Better safe than sorry */
+	if (sptr->user) 
+	{
+		sprintf(buff,"# Added by %s (%s@%s) on %s",
+			 sptr->name, sptr->user->username, sptr->user->host,
+			 asctime(localtime(&current_time)));
+	}
+	else
+	{
+		sprintf(buff,"# Added by %s on %s",
+			 sptr->name, asctime(localtime(&current_time)));
+
+	}
+	if (write(out, buff, strlen(buff)) <= 0)
+	{
+		sendto_one(sptr, ":%s NOTICE %s :Problem writing to the configfile",
+				  ME, BadPtr(parv[0]));
+		close(out);
+		return 1;
+	}
+	sprintf(buff, "J%c%s%c%s%c%c\n\n", IRCDCONF_DELIMITER, channel, IRCDCONF_DELIMITER, reason, 
+						 IRCDCONF_DELIMITER, IRCDCONF_DELIMITER);
+	if (write(out, buff, strlen(buff)) <= 0)
+	{
+		sendto_one(sptr, ":%s NOTICE %s :Problem writing to the configfile",
+				  ME, BadTo(parv[0]));
+		close(out);
+		return 1;
+	}
+	close(out);
+	sendto_one(sptr, ":%s NOTICE %s :Added RESV for %s with reason: %s",
+			  ME, BadTo(parv[0]), parv[1], parv[2]);
+	return 1;
+}
+#endif
+
 
 #ifdef TKLINE
 int	m_tkline(aClient *cptr, aClient *sptr, int parc, char **parv)

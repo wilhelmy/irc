@@ -110,6 +110,9 @@ struct Message msgtab[] = {
 { "TKLINE",   3, MPAR, { _m(m_nop), _m(m_nopriv), _m(m_tkline), _m(m_tkline), _m(m_unreg) } },
 { "UNTKLINE", 1, MPAR, { _m(m_nop), _m(m_nopriv), _m(m_untkline), _m(m_untkline), _m(m_unreg) } },
 #endif
+#ifdef CHANJUPE
+{ "RESV",     2, MPAR, { _m(m_nop), _m(m_nopriv), _m(m_resv), _m(m_nop), _m(m_unreg) } },
+#endif
 #ifdef KLINE
 { "KLINE",    2, MPAR, { _m(m_nop), _m(m_nopriv), _m(m_kline), _m(m_kline), _m(m_unreg) } },
 #endif
