@@ -1783,6 +1783,9 @@ static	void	report_configured_links(aClient *sptr, char *to, int mask)
 #endif
 			else if ((tmp->status & CONF_CLIENT))
 			{
+				if(IsConfSpoofed(tmp))
+					continue;
+
 				sendto_one(sptr, replies[p[1]], ME, BadTo(to),
 					   c, host, (pass) ? "*" : null,
 					   name, port, get_conf_class(tmp),

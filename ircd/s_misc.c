@@ -193,6 +193,13 @@ char	*get_client_name(aClient *sptr, int showip)
 #endif
 		    {
 			if (showip)
+			{
+				 if(IsSpoofed(sptr))
+					sprintf(nbuf, "%s[%.*s@%s]",
+					sptr->name, USERLEN,
+					(!(sptr->flags & FLAGS_GOTID)) ? "" : sptr->auth,
+					sptr->user->sip);
+				else
 				(void)sprintf(nbuf, "%s[%.*s@%s]",
 					sptr->name, USERLEN,
 					(!(sptr->flags & FLAGS_GOTID)) ? "" :
@@ -205,6 +212,7 @@ char	*get_client_name(aClient *sptr, int showip)
 					      inetntoa((char *)&sptr->ip)
 #endif
 					);
+			}
 			else
 			    {
 				if (mycmp(sptr->name, sptr->sockhost))

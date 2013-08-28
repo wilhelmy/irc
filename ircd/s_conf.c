@@ -127,6 +127,10 @@ long	iline_flags_parse(char *string)
 	{
 		tmp |= CFLAG_FALL;
 	}
+	if (index(string,'='))
+	{
+		tmp |= CFLAG_SPOOFED;
+	}
 
 	return tmp;
 }
@@ -170,6 +174,10 @@ char	*iline_flags_to_string(long flags)
 	if (flags & CFLAG_FALL)
 	{
 		*s++ = 'F';
+	}
+	if (flags & CFLAG_SPOOFED)
+	{
+		*s++ = '=';
 	}
 	if (s == ifsbuf)
 	{
@@ -620,6 +628,14 @@ int	attach_Iline(aClient *cptr, struct hostent *hp, char *sockhost)
 		if ((retval = attach_conf(cptr, aconf)) < -1)
 		{
 			find_bounce(cptr, ConfClass(aconf), -1);
+		}
+
+		if(IsConfSpoofed(aconf))
+		{
+			strcpy(cptr->sockhost, SPOOF_HOST);
+			strcpy(cptr->user->host, SPOOF_HOST);
+			strcpy(cptr->user->sip, "127.0.0.1");
+			SetSpoofed(cptr);
 		}
 		break;
 	}

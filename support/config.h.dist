@@ -983,3 +983,6 @@
 #error CACCEPT_DEFAULT can be 0, 1 or 2.
 #endif
 #endif
+
+/* the hostname for spoofed clients */
+#define SPOOF_HOST "example.org"
