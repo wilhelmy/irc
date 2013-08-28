@@ -1993,6 +1993,19 @@ static	int	can_join(aClient *sptr, aChannel *chptr, char *key)
 	Link	*banned;
 	int	limit = 0;
 
+#ifdef CHANJUPE
+	/* Even though the channel is created, it will get GCed later */
+	aConfItem *aconf = NULL;
+	if ((aconf = (aConfItem*)find_chanjupe(chptr->chname)) && !is_allowed(sptr, ACL_CHANJUPE)) {
+# if defined(CLIENTS_CHANNEL) && (CLIENTS_CHANNEL_LEVEL & CCL_CHANJUPE)
+		sendto_flag(SCH_CLIENT, "%s %s %s %s JOIN %s (%s)",
+			sptr->user->uid, sptr->name, sptr->user->username,
+			sptr->user->host, name, BadTo(aconf->passwd));
+#endif
+		return ERR_UNAVAILRESOURCE;
+	}
+#endif
+
 	if (chptr->users == 0 && (bootopt & BOOT_PROT) && 
 	    chptr->history != 0 && *chptr->chname != '!')
 		return (timeofday > chptr->history) ? 0 : ERR_UNAVAILRESOURCE;

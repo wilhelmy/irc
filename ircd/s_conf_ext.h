@@ -79,6 +79,10 @@ EXTERN long pline_flags_parse(char *string);
 # ifdef	INET6
 EXTERN char *ipv6_convert (char *orig);
 # endif
+#ifdef CHANJUPE
+EXTERN int m_resv(aClient *, aClient *, int, char **);
+EXTERN aConfItem *find_chanjupe(char *name);
+#endif
 #ifdef TKLINE
 EXTERN int m_tkline(aClient *, aClient *, int, char **);
 EXTERN int m_untkline(aClient *, aClient *, int, char **);

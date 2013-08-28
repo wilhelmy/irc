@@ -108,6 +108,11 @@
 #undef KLINE
 
 /*
+ * Channel jupe
+ */
+#undef CHANJUPE
+
+/*
  * Define this if you want to have TKLINE and UNTKLINE commands
  * for opers and services.
  */
