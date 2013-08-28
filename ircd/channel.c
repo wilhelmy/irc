@@ -3114,7 +3114,7 @@ int	m_kick(aClient *cptr, aClient *sptr, int parc, char *parv[])
 			    {
 				/* Tell the bad news to target */
 				if (MyPerson(who))
-					sendto_prefix_one(who, anonclient, ":%s KICK %s %s :%s", sptr->name, chptr->chname, who->name, comment);
+					sendto_prefix_one(who, sptr, ":%s KICK %s %s :%s", sptr->name, chptr->chname, who->name, comment);
 
 				/* Nick buffer to kick out. */
 				/* as we need space for ",nick", we should add
@@ -3149,13 +3149,9 @@ int	m_kick(aClient *cptr, aClient *sptr, int parc, char *parv[])
 					}
 				}
 
-				/* Tell the op */
-				if (MyPerson(sptr) && sptr != who)
-					sendto_prefix_one(sptr, sptr, ":%s KICK %s %s :%s", sptr->name, chptr->chname, who->name, comment);
-
-				/* And now tell to everyone except the 2 involved (if channel not anonymous) */
+				/* And now tell to everyone, unless the op kicked himself */
 				if (!remove_user_from_channel(who, chptr))
-					sendto_channel_butanon(anonclient, chptr,
+					sendto_channel_butanon(chptr, sptr,
 						":%s KICK %s %s :%s", sptr->name,
 							chptr->chname, who->name, comment);
 
