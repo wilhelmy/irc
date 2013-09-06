@@ -12,7 +12,7 @@ AC_DEFUN(IRC_MATHLIB, [
 	AC_SUBST(MATHLIBS)
 ])
 
-dns based on the version from the GNU Autoconf Macro Archive at:
+dnl dns based on the version from the GNU Autoconf Macro Archive at:
 dnl http://www.gnu.org/software/ac-archive/htmldoc/ac_func_accept_argtypes.html
 dnl
 AC_DEFUN([AC_FUNC_ACCEPT_ARGTYPES],
